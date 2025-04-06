@@ -1,15 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import styled, { keyframes } from 'styled-components';
+import styled from 'styled-components';
 import GameOverDialog from './GameOverDialog';
 import JoinGameForm from './JoinGameForm';
 import { useGame } from '../../../context/GameContext';
-
-// Animation for flashing when it's the player's turn
-const flashAnimation = keyframes`
-  0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7); }
-  70% { box-shadow: 0 0 0 10px rgba(255, 215, 0, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); }
-`;
 
 const GameContainer = styled.div`
   display: flex;

@@ -22,6 +22,7 @@ export const GameProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const [currentRoom, setCurrentRoom] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
 
   // Initialize socket connection
   useEffect(() => {
@@ -31,9 +32,14 @@ export const GameProvider = ({ children }) => {
       
       const newSocket = io(BACKEND_URL, {
         withCredentials: true,
-        transports: ['websocket'],
+        transports: ['websocket', 'polling'],
         reconnectionAttempts: 5,
-        reconnectionDelay: 1000
+        reconnectionDelay: 1000,
+        timeout: 20000,
+        path: '/socket.io/',
+        autoConnect: true,
+        reconnection: true,
+        forceNew: true
       });
 
       const handleConnect = () => {
@@ -41,38 +47,59 @@ export const GameProvider = ({ children }) => {
         setSocket(newSocket);
         setIsConnecting(false);
         setError(null);
+        setReconnectAttempts(0);
       };
 
-      const handleDisconnect = () => {
-        console.log('Disconnected from game server');
+      const handleDisconnect = (reason) => {
+        console.log('Disconnected from game server:', reason);
+        if (reason === 'io server disconnect') {
+          // Server initiated disconnect, try to reconnect
+          newSocket.connect();
+        }
         setSocket(null);
         setPlayerState(null);
         setGameState(null);
         setCurrentRoom(null);
-        setError('Disconnected from server. Please refresh the page.');
+        setError('Disconnected from server. Attempting to reconnect...');
         setIsConnecting(false);
       };
 
       const handleConnectError = (error) => {
         console.error('Connection error:', error);
         setSocket(null);
-        setError('Failed to connect to server. Please check your connection.');
+        setError('Failed to connect to server. Retrying...');
         setIsConnecting(false);
+        setReconnectAttempts(prev => prev + 1);
+
+        // If we've tried too many times, stop trying
+        if (reconnectAttempts >= 5) {
+          setError('Unable to connect to server after multiple attempts. Please refresh the page.');
+          return;
+        }
+
+        // Try to reconnect after a delay
+        setTimeout(() => {
+          if (!socket) {
+            newSocket.connect();
+          }
+        }, 2000);
       };
 
       newSocket.on('connect', handleConnect);
       newSocket.on('disconnect', handleDisconnect);
       newSocket.on('connect_error', handleConnectError);
+      newSocket.on('error', handleConnectError);
 
       return () => {
         console.log('Cleaning up socket connection');
         newSocket.removeListener('connect', handleConnect);
         newSocket.removeListener('disconnect', handleDisconnect);
         newSocket.removeListener('connect_error', handleConnectError);
-        newSocket.disconnect();
+        newSocket.removeListener('error', handleConnectError);
+        newSocket.close();
       };
     }
-  }, [socket, isConnecting]);
+  }, [socket, isConnecting, reconnectAttempts]);
 
   // Handle game events
   useEffect(() => {

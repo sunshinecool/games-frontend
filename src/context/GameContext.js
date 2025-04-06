@@ -72,7 +72,7 @@ export const GameProvider = ({ children }) => {
         newSocket.disconnect();
       };
     }
-  }, []);
+  }, [socket, isConnecting]);
 
   // Handle game events
   useEffect(() => {

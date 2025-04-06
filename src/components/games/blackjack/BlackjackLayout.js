@@ -73,7 +73,6 @@ const PlayerCard = styled.div`
   max-width: 280px;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
   border: 2px solid ${props => props.isCurrentPlayer ? '#ffd700' : 'transparent'};
-  animation: ${props => props.isMyTurn ? flashAnimation : 'none'} 1.5s infinite;
   transition: all 0.3s ease;
   
   &:hover {
@@ -254,19 +253,11 @@ const BlackjackLayout = () => {
   } = useGame();
 
   const [showHelp, setShowHelp] = useState(false);
-  const [isMyTurn, setIsMyTurn] = useState(false);
   
   useEffect(() => {
     console.log('BlackjackLayout - Current game phase:', gameState?.gamePhase);
     console.log('BlackjackLayout - Current player:', gameState?.currentPlayer);
     console.log('BlackjackLayout - Player state:', playerState);
-    
-    if (gameState?.gamePhase === 'playing' && 
-        gameState?.currentPlayer === playerState?.id) {
-      setIsMyTurn(true);
-    } else {
-      setIsMyTurn(false);
-    }
   }, [gameState?.gamePhase, gameState?.currentPlayer, playerState]);
   
   // Get card color based on suit
@@ -289,38 +280,6 @@ const BlackjackLayout = () => {
     return `${displayValue}${card.suit}`;
   };
   
-  const handleAction = (action) => {
-    switch (action) {
-      case 'hit':
-        hit();
-        break;
-      case 'stand':
-        stand();
-        break;
-      case 'double':
-        doubleDown();
-        break;
-      case 'bet10':
-        console.log('Placing bet: 10');
-        placeBet(10);
-        break;
-      case 'bet20':
-        console.log('Placing bet: 20');
-        placeBet(20);
-        break;
-      case 'bet50':
-        console.log('Placing bet: 50');
-        placeBet(50);
-        break;
-      case 'ready':
-        console.log('Player ready');
-        readyToPlay();
-        break;
-      default:
-        console.log('Unknown action:', action);
-    }
-  };
-  
   const handleNextGame = () => {
     console.log('Requesting next game');
     nextGame();
@@ -335,14 +294,12 @@ const BlackjackLayout = () => {
   }
 
   const renderPlayerCard = (player) => {
-    const isMyTurn = gameState?.currentPlayer === player.id;
     const isCurrentPlayer = player.id === playerState?.id;
 
     return (
       <PlayerCard 
         key={player.id} 
         isCurrentPlayer={isCurrentPlayer}
-        isMyTurn={isMyTurn}
       >
         <PlayerInfo>
           <PlayerInfoRow>
@@ -397,7 +354,7 @@ const BlackjackLayout = () => {
               </>
             )}
             
-            {gameState?.gamePhase === 'playing' && isMyTurn && (
+            {gameState?.gamePhase === 'playing' && (
               <>
                 <ActionButton onClick={() => hit()}>Hit</ActionButton>
                 <ActionButton onClick={() => stand()}>Stand</ActionButton>

@@ -9,16 +9,22 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001'
 // Socket.IO configuration
 const socketConfig = {
   withCredentials: true,
-  transports: ['websocket', 'polling'],
+  transports: ['polling', 'websocket'], // Try polling first, then upgrade to WebSocket
   reconnectionAttempts: 5,
   reconnectionDelay: 1000,
-  timeout: 20000,
+  timeout: 45000,
   path: '/socket.io/',
   autoConnect: true,
   reconnection: true,
   forceNew: true,
   upgrade: true,
-  rememberUpgrade: true
+  rememberUpgrade: true,
+  rejectUnauthorized: false,
+  secure: true,
+  timestampRequests: true,
+  extraHeaders: {
+    'User-Agent': 'BlackjackGame/1.0'
+  }
 };
 
 export const useGame = () => {
@@ -46,81 +52,109 @@ export const GameProvider = ({ children }) => {
       console.log('Connecting to backend at:', BACKEND_URL);
       console.log('Socket.IO configuration:', socketConfig);
       
-      const newSocket = io(BACKEND_URL, socketConfig);
-
-      const handleConnect = () => {
-        console.log('Connected to game server with ID:', newSocket.id);
-        console.log('Connection details:', {
-          transport: newSocket.io.engine.transport.name,
-          protocol: newSocket.io.engine.protocol,
-          hostname: newSocket.io.uri,
-          path: newSocket.io.opts.path
+      // First try to verify the server is up
+      fetch(`${BACKEND_URL}/health`)
+        .then(response => response.json())
+        .then(data => {
+          console.log('Server health check:', data);
+          if (data.status === 'ok') {
+            initializeSocket();
+          } else {
+            setError('Server health check failed');
+            setIsConnecting(false);
+          }
+        })
+        .catch(error => {
+          console.error('Health check failed:', error);
+          setError('Unable to reach the server');
+          setIsConnecting(false);
         });
-        setSocket(newSocket);
-        setIsConnecting(false);
-        setError(null);
-        setReconnectAttempts(0);
-      };
 
-      const handleDisconnect = (reason) => {
-        console.log('Disconnected from game server:', reason);
-        console.log('Current transport:', newSocket.io.engine.transport.name);
-        
-        if (reason === 'io server disconnect') {
-          // Server initiated disconnect, try to reconnect
-          console.log('Attempting to reconnect...');
-          newSocket.connect();
-        } else if (reason === 'transport close' && newSocket.io.engine.transport.name === 'websocket') {
-          // WebSocket failed, try polling
-          console.log('WebSocket failed, falling back to polling...');
-          newSocket.io.opts.transports = ['polling', 'websocket'];
-          newSocket.connect();
-        }
-        
-        setSocket(null);
-        setPlayerState(null);
-        setGameState(null);
-        setCurrentRoom(null);
-        setError('Disconnected from server. Attempting to reconnect...');
-        setIsConnecting(false);
-      };
+      const initializeSocket = () => {
+        const newSocket = io(BACKEND_URL, socketConfig);
 
-      const handleConnectError = (error) => {
-        console.error('Connection error:', error);
-        console.log('Current transport:', newSocket.io.engine.transport?.name);
-        console.log('Available transports:', newSocket.io.engine.availableTransports());
-        
-        setSocket(null);
-        setError('Failed to connect to server. Retrying...');
-        setIsConnecting(false);
-        setReconnectAttempts(prev => prev + 1);
+        const handleConnect = () => {
+          console.log('Connected to game server with ID:', newSocket.id);
+          console.log('Connection details:', {
+            transport: newSocket.io.engine.transport.name,
+            protocol: newSocket.io.engine.protocol,
+            hostname: newSocket.io.uri,
+            path: newSocket.io.opts.path,
+            query: newSocket.io.opts.query
+          });
+          setSocket(newSocket);
+          setIsConnecting(false);
+          setError(null);
+          setReconnectAttempts(0);
+        };
 
-        if (reconnectAttempts >= 5) {
-          setError('Unable to connect to server after multiple attempts. Please refresh the page.');
-          return;
-        }
-
-        // Try to reconnect after a delay
-        setTimeout(() => {
-          if (!socket) {
-            console.log('Attempting reconnection with config:', socketConfig);
+        const handleDisconnect = (reason) => {
+          console.log('Disconnected from game server:', reason);
+          if (newSocket.io?.engine?.transport) {
+            console.log('Last transport:', newSocket.io.engine.transport.name);
+          }
+          
+          if (reason === 'io server disconnect') {
+            console.log('Server initiated disconnect, attempting reconnect...');
+            newSocket.connect();
+          } else if (reason === 'transport close') {
+            console.log('Transport closed, attempting reconnect with polling...');
+            newSocket.io.opts.transports = ['polling', 'websocket'];
             newSocket.connect();
           }
-        }, 2000);
-      };
+          
+          setSocket(null);
+          setPlayerState(null);
+          setGameState(null);
+          setCurrentRoom(null);
+          setError(`Connection lost: ${reason}. Attempting to reconnect...`);
+          setIsConnecting(false);
+        };
 
-      newSocket.on('connect', handleConnect);
-      newSocket.on('disconnect', handleDisconnect);
-      newSocket.on('connect_error', handleConnectError);
-      newSocket.on('error', handleConnectError);
+        const handleConnectError = (error) => {
+          console.error('Connection error:', error);
+          if (newSocket.io?.engine?.transport) {
+            console.log('Failed transport:', newSocket.io.engine.transport.name);
+          }
+          console.log('Available transports:', newSocket.io.engine?.availableTransports?.() || []);
+          
+          setSocket(null);
+          setError(`Connection error: ${error.message}. Retrying...`);
+          setIsConnecting(false);
+          setReconnectAttempts(prev => prev + 1);
 
-      return () => {
-        console.log('Cleaning up socket connection');
-        newSocket.removeListener('connect', handleConnect);
-        newSocket.removeListener('disconnect', handleDisconnect);
-        newSocket.removeListener('connect_error', handleConnectError);
-        newSocket.removeListener('error', handleConnectError);
-        newSocket.close();
+          if (reconnectAttempts >= 5) {
+            setError('Unable to connect after multiple attempts. Please refresh the page.');
+            return;
+          }
+
+          setTimeout(() => {
+            if (!socket) {
+              console.log('Attempting reconnection with modified config...');
+              // Try with polling only on retry
+              const retryConfig = {
+                ...socketConfig,
+                transports: ['polling']
+              };
+              const retrySocket = io(BACKEND_URL, retryConfig);
+              retrySocket.connect();
+            }
+          }, 2000);
+        };
+
+        newSocket.on('connect', handleConnect);
+        newSocket.on('disconnect', handleDisconnect);
+        newSocket.on('connect_error', handleConnectError);
+        newSocket.on('error', handleConnectError);
+
+        return () => {
+          console.log('Cleaning up socket connection');
+          newSocket.removeListener('connect', handleConnect);
+          newSocket.removeListener('disconnect', handleDisconnect);
+          newSocket.removeListener('connect_error', handleConnectError);
+          newSocket.removeListener('error', handleConnectError);
+          newSocket.close();
+        };
       };
     }
   }, [socket, isConnecting, reconnectAttempts]);
